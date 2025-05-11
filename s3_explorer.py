@@ -66,7 +66,7 @@ class S3ClientGUI:
         self.tree.column("Name", minwidth=0, stretch=True)  # Set a minimum width and allow stretching
         self.tree.column("Size (Bytes)", width=50, anchor="e")  # Set a fixed width and right-align
         self.tree.column("Last Modified", width=150)      # Set a fixed width
-        self.tree.grid(row=4, column=0, columnspan=5, padx=5, pady=5, sticky="nsew")
+        self.tree.grid(row=4, column=0, columnspan=6, padx=5, pady=5, sticky="nsew")
         self.tree.bind("<Double-1>", self._download_selected_file)
 
         # Buttons
@@ -82,8 +82,11 @@ class S3ClientGUI:
         self.delete_button = ttk.Button(master, text="Delete", command=self._delete_selected_files, state=tk.DISABLED)
         self.delete_button.grid(row=5, column=3, padx=5, pady=5, sticky="ew")
 
+        self.create_folder_button = ttk.Button(master, text="Create Folder", command=self._create_s3_folder, state=tk.DISABLED)
+        self.create_folder_button.grid(row=5, column=4, padx=5, pady=5, sticky="ew") 
+
         self.refresh_button = ttk.Button(master, text="Refresh", command=self._list_objects, state=tk.DISABLED)
-        self.refresh_button.grid(row=5, column=4, padx=5, pady=5, sticky="ew")
+        self.refresh_button.grid(row=5, column=5, padx=5, pady=5, sticky="ew")
 
         # Configure grid weights for resizing
         master.grid_columnconfigure(0, weight=1)
@@ -150,25 +153,47 @@ class S3ClientGUI:
                 self.upload_button.config(state=tk.NORMAL)
                 self.upload_folder_button.config(state=tk.NORMAL)
                 self.delete_button.config(state=tk.NORMAL)
-                self.refresh_button.config(state=tk.NORMAL)
+                self.create_folder_button.config(state=tk.NORMAL, command=self._create_s3_folder)
+                self.refresh_button.config(state=tk.NORMAL, command=self._refresh_object_list)
                 messagebox.showinfo("Success", f"Connected to bucket '{bucket}' using profile '{profile_name}' with root folder '{self.s3_root_prefix}'.")
             else:
                 self._disable_buttons()
+                self.refresh_button.config(state=tk.DISABLED, command=None)
+                self.create_folder_button.config(state=tk.DISABLED, command=None)
         except ProfileNotFound:
             messagebox.showerror("Error", f"AWS profile '{profile_name}' not found in your credentials file.")
             self.s3_client = None
             self._clear_file_list()
             self._disable_buttons()
+            self.refresh_button.config(state=tk.DISABLED, command=None)
         except NoCredentialsError:
             messagebox.showerror("Error", "No AWS credentials found. Please configure your ~/.aws/credentials file.")
             self.s3_client = None
             self._clear_file_list()
             self._disable_buttons()
+            self.refresh_button.config(state=tk.DISABLED, command=None)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to connect to S3: {e}")
             self.s3_client = None
             self._clear_file_list()
             self._disable_buttons()
+            self.refresh_button.config(state=tk.DISABLED, command=None)
+
+    def _refresh_object_list(self):
+        bucket = self.bucket_name.get()
+        self.s3_root_prefix = self.s3_root_prefix_entry.get().strip()
+        if self.s3_root_prefix and not self.s3_root_prefix.endswith('/'):
+            self.s3_root_prefix += '/'
+
+        if not bucket:
+            messagebox.showerror("Error", "Please enter the S3 bucket name.")
+            return
+
+        if self.s3_client:
+            self._list_objects()
+        else:
+            messagebox.showerror("Error", "Not connected to S3. Please connect first.")
+
 
     def _show_long_message(self, title, message):
         top = tk.Toplevel(self.master)
@@ -233,6 +258,40 @@ class S3ClientGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to list objects: {e}")
             return False
+        
+    def _create_s3_folder(self):
+        if not self.s3_client or not self.bucket_name.get():
+            messagebox.showerror("Error", "Not connected to S3 or bucket name is missing.")
+            return
+
+        create_folder_dialog = tk.Toplevel(self.master)
+        create_folder_dialog.title("Create New Folder")
+
+        ttk.Label(create_folder_dialog, text="Enter folder name:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        folder_name_entry = ttk.Entry(create_folder_dialog)
+        folder_name_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        def create():
+            new_folder_name = folder_name_entry.get().strip()
+            if new_folder_name:
+                s3_key = f"{self.s3_root_prefix}{new_folder_name}/"
+                try:
+                    self.s3_client.put_object(Bucket=self.bucket_name.get(), Key=s3_key)
+                    messagebox.showinfo("Success", f"Folder '{new_folder_name}' created at '{self.s3_root_prefix}'.")
+                    self._refresh_object_list()
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to create folder: {e}")
+                finally:
+                    create_folder_dialog.destroy()
+            else:
+                messagebox.showerror("Error", "Folder name cannot be empty.")
+
+        create_button = ttk.Button(create_folder_dialog, text="Create", command=create)
+        create_button.grid(row=1, column=0, columnspan=2, padx=5, pady=10)
+
+        create_folder_dialog.transient(self.master)
+        create_folder_dialog.grab_set()
+        self.master.wait_window(create_folder_dialog)
 
     def _download_selected_file(self, event=None):
         selected_items = self.tree.selection()
@@ -245,7 +304,7 @@ class S3ClientGUI:
 
         destination_folder = filedialog.askdirectory()
         if not destination_folder:
-            return  # User cancelled directory selection
+            return  
 
         successful_downloads = []
         failed_downloads = {}
@@ -271,7 +330,7 @@ class S3ClientGUI:
     def _show_upload_success(self, successful_uploads, bucket_name):
         top = tk.Toplevel(self.master)
         top.title("Upload Success")
-        text_area = tk.Text(top, width=80, height=15, wrap="none")  # Increased width, disabled wrapping
+        text_area = tk.Text(top, width=80, height=15, wrap="none")  
         scrollbar_y = ttk.Scrollbar(top, orient="vertical", command=text_area.yview)
         scrollbar_x = ttk.Scrollbar(top, orient="horizontal", command=text_area.xview)
         text_area.config(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
@@ -389,7 +448,7 @@ class S3ClientGUI:
         yes_button.pack(side="right", padx=10, pady=10)
         no_button.pack(side="left", padx=10, pady=10)
 
-        confirm_top.wait_window()  # Wait for the confirmation window to close
+        confirm_top.wait_window()  
 
         if confirmed.get():
             deleted_count = 0
