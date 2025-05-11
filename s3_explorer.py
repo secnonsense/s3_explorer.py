@@ -47,56 +47,71 @@ class S3ClientGUI:
         self.bucket_entry = ttk.Entry(master, textvariable=self.bucket_name)
         self.bucket_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
+        # S3 Root Folder Entry
+        ttk.Label(master, text="S3 Root Folder (optional, e.g., 'myfolder/'):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.s3_root_prefix_entry = ttk.Entry(master)
+        self.s3_root_prefix_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+
         # Connect Button
         self.connect_button = ttk.Button(master, text="Connect to S3", command=self._connect_s3)
-        self.connect_button.grid(row=1, column=2, padx=5, pady=5, sticky="ew")
+        self.connect_button.grid(row=2, column=2, padx=5, pady=5, sticky="ew")
+
+        self.s3_root_prefix = ''
 
         # File List
         self.tree = ttk.Treeview(master, columns=("Name", "Size (Bytes)", "Last Modified"), show="headings")
         self.tree.heading("Name", text="Name", command=lambda: self._sort_column(self.tree, "Name", False))
         self.tree.heading("Size (Bytes)", text="Size (Bytes)", command=lambda: self._sort_column(self.tree, "Size (Bytes)", False))
         self.tree.heading("Last Modified", text="Last Modified", command=lambda: self._sort_column(self.tree, "Last Modified", False))
-        self.tree.column("Name", minwidth=350, stretch=True)  # Set a minimum width and allow stretching
+        self.tree.column("Name", minwidth=0, stretch=True)  # Set a minimum width and allow stretching
         self.tree.column("Size (Bytes)", width=50, anchor="e")  # Set a fixed width and right-align
         self.tree.column("Last Modified", width=150)      # Set a fixed width
-
-        self.tree.grid(row=2, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
+        self.tree.grid(row=4, column=0, columnspan=5, padx=5, pady=5, sticky="nsew")
         self.tree.bind("<Double-1>", self._download_selected_file)
 
         # Buttons
         self.download_button = ttk.Button(master, text="Download", command=self._download_selected_file, state=tk.DISABLED)
-        self.download_button.grid(row=3, column=0, padx=5, pady=5, sticky="ew")
+        self.download_button.grid(row=5, column=0, padx=5, pady=5, sticky="ew")
 
         self.upload_button = ttk.Button(master, text="Upload Files", command=self._upload_file, state=tk.DISABLED)
-        self.upload_button.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+        self.upload_button.grid(row=5, column=1, padx=5, pady=5, sticky="ew")
 
         self.upload_folder_button = ttk.Button(master, text="Upload Folder", command=self._upload_folder, state=tk.DISABLED)
-        self.upload_folder_button.grid(row=3, column=2, padx=5, pady=5, sticky="ew")    
+        self.upload_folder_button.grid(row=5, column=2, padx=5, pady=5, sticky="ew")    
 
         self.delete_button = ttk.Button(master, text="Delete", command=self._delete_selected_files, state=tk.DISABLED)
-        self.delete_button.grid(row=3, column=3, padx=5, pady=5, sticky="ew")
+        self.delete_button.grid(row=5, column=3, padx=5, pady=5, sticky="ew")
 
         self.refresh_button = ttk.Button(master, text="Refresh", command=self._list_objects, state=tk.DISABLED)
-        self.refresh_button.grid(row=3, column=4, padx=5, pady=5, sticky="ew")
+        self.refresh_button.grid(row=5, column=4, padx=5, pady=5, sticky="ew")
 
+        # Configure grid weights for resizing
+        master.grid_columnconfigure(0, weight=1)
         master.grid_columnconfigure(1, weight=1)
-        master.grid_rowconfigure(2, weight=1)
+        master.grid_columnconfigure(2, weight=1)
+        master.grid_columnconfigure(3, weight=0)
+        master.grid_columnconfigure(4, weight=0)
+        master.grid_rowconfigure(4, weight=1)
         
-        self.sort_column_state = {} 
+        self.sort_column_state = {} # To keep track of sort order for each column
 
     def _sort_column(self, tv, col, reverse):
         """Sorts the treeview based on the clicked column."""
         try:
             data = [(tv.set(child, col), child) for child in tv.get_children('')]
+
+            # Sort based on the column type
             if col == "Size (Bytes)":
                 data.sort(key=lambda s: int(s[0]), reverse=reverse)
             elif col == "Last Modified":
-                data.sort(key=lambda s: s[0], reverse=reverse) 
+                data.sort(key=lambda s: s[0], reverse=reverse) # Assuming string comparison is sufficient
             else:
                 data.sort(key=lambda s: s[0].lower(), reverse=reverse)
 
             for index, (val, child) in enumerate(data):
                 tv.move(child, '', index)
+
+            # Switch the sort order for the next click
             tv.heading(col, command=lambda: self._sort_column(tv, col, not reverse))
         except Exception as e:
             messagebox.showerror("Sorting Error", f"Error during sorting: {e}")
@@ -119,6 +134,9 @@ class S3ClientGUI:
     def _connect_s3(self, event=None):
         profile_name = self.current_profile.get()
         bucket = self.bucket_name.get()
+        self.s3_root_prefix = self.s3_root_prefix_entry.get().strip()
+        if self.s3_root_prefix and not self.s3_root_prefix.endswith('/'):
+            self.s3_root_prefix += '/'
         if not bucket:
             messagebox.showerror("Error", "Please enter the S3 bucket name.")
             return
@@ -126,13 +144,16 @@ class S3ClientGUI:
         try:
             session = boto3.Session(profile_name=profile_name)
             self.s3_client = session.client('s3')
-            self._list_objects()
-            self.download_button.config(state=tk.NORMAL)
-            self.upload_button.config(state=tk.NORMAL)
-            self.upload_folder_button.config(state=tk.NORMAL)
-            self.delete_button.config(state=tk.NORMAL)
-            self.refresh_button.config(state=tk.NORMAL)
-            messagebox.showinfo("Success", f"Connected to bucket '{bucket}' using profile '{profile_name}'.")
+            list_result = self._list_objects()
+            if list_result == True:
+                self.download_button.config(state=tk.NORMAL)
+                self.upload_button.config(state=tk.NORMAL)
+                self.upload_folder_button.config(state=tk.NORMAL)
+                self.delete_button.config(state=tk.NORMAL)
+                self.refresh_button.config(state=tk.NORMAL)
+                messagebox.showinfo("Success", f"Connected to bucket '{bucket}' using profile '{profile_name}' with root folder '{self.s3_root_prefix}'.")
+            else:
+                self._disable_buttons()
         except ProfileNotFound:
             messagebox.showerror("Error", f"AWS profile '{profile_name}' not found in your credentials file.")
             self.s3_client = None
@@ -152,7 +173,7 @@ class S3ClientGUI:
     def _show_long_message(self, title, message):
         top = tk.Toplevel(self.master)
         top.title(title)
-        text_area = tk.Text(top, width=80, height=10, wrap="none")  
+        text_area = tk.Text(top, width=80, height=10, wrap="none")  # Adjust width/height as needed
         scrollbar_y = ttk.Scrollbar(top, orient="vertical", command=text_area.yview)
         scrollbar_x = ttk.Scrollbar(top, orient="horizontal", command=text_area.xview)
         text_area.config(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
@@ -182,31 +203,36 @@ class S3ClientGUI:
             return
 
         self._clear_file_list()
+        items = []  # Initialize items list here to ensure it always exists
         try:
-            response = self.s3_client.list_objects_v2(Bucket=self.bucket_name.get())
+            response = self.s3_client.list_objects_v2(Bucket=self.bucket_name.get(), Prefix=self.s3_root_prefix)
             if 'Contents' in response:
                 self.current_objects = response['Contents']
                 for obj in self.current_objects:
                     key = obj['Key']
-                    size = obj['Size']
-                    last_modified = obj['LastModified'].strftime('%Y-%m-%d %H:%M:%S')
-                    self.tree.insert("", tk.END, values=(key, size, last_modified))
+                    if self.s3_root_prefix and key.startswith(self.s3_root_prefix):
+                        display_key = key[len(self.s3_root_prefix):]
+                        if display_key: # Don't show if it's just the prefix
+                            size = obj['Size']
+                            last_modified = obj['LastModified'].strftime('%Y-%m-%d %H:%M:%S')
+                            items.append((display_key, size, last_modified))
+                    elif not self.s3_root_prefix:
+                        size = obj['Size']
+                        last_modified = obj['LastModified'].strftime('%Y-%m-%d %H:%M:%S')
+                        items.append((key, size, last_modified))
             else:
-                messagebox.showinfo("Info", "Bucket is empty.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to list objects: {e}")
-        if 'Contents' in response:
-            self.current_objects = response['Contents']
-            items = []
-            for obj in self.current_objects:
-                key = obj['Key']
-                size = obj['Size']
-                last_modified = obj['LastModified'].strftime('%Y-%m-%d %H:%M:%S')
-                items.append((key, size, last_modified))
+                messagebox.showinfo("Info", "Bucket is empty or prefix not found.")
+                return "empty"
+
+            # Clear existing items before re-inserting
             for item in self.tree.get_children():
                 self.tree.delete(item)
             for item in items:
                 self.tree.insert("", tk.END, values=item)
+            return True
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to list objects: {e}")
+            return False
 
     def _download_selected_file(self, event=None):
         selected_items = self.tree.selection()
@@ -219,18 +245,19 @@ class S3ClientGUI:
 
         destination_folder = filedialog.askdirectory()
         if not destination_folder:
-            return  
+            return  # User cancelled directory selection
 
         successful_downloads = []
         failed_downloads = {}
 
-        for file_key in files_to_download:
-            save_path = os.path.join(destination_folder, os.path.basename(file_key))
+        for file_key_display in files_to_download:
+            s3_key_full = f"{self.s3_root_prefix}{file_key_display}" if self.s3_root_prefix else file_key_display
+            save_path = os.path.join(destination_folder, os.path.basename(file_key_display))
             try:
-                self.s3_client.download_file(self.bucket_name.get(), file_key, save_path)
-                successful_downloads.append(f"{file_key} -> {save_path}")
+                self.s3_client.download_file(self.bucket_name.get(), s3_key_full, save_path)
+                successful_downloads.append(f"{file_key_display} -> {save_path}")
             except Exception as e:
-                failed_downloads[file_key] = str(e)
+                failed_downloads[file_key_display] = str(e)
 
         if successful_downloads:
             self._show_long_message("Download Success", "Successfully downloaded the following files:\n" + "\n".join(successful_downloads))
@@ -244,7 +271,7 @@ class S3ClientGUI:
     def _show_upload_success(self, successful_uploads, bucket_name):
         top = tk.Toplevel(self.master)
         top.title("Upload Success")
-        text_area = tk.Text(top, width=80, height=15, wrap="none")  
+        text_area = tk.Text(top, width=80, height=15, wrap="none")  # Increased width, disabled wrapping
         scrollbar_y = ttk.Scrollbar(top, orient="vertical", command=text_area.yview)
         scrollbar_x = ttk.Scrollbar(top, orient="horizontal", command=text_area.xview)
         text_area.config(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
@@ -254,7 +281,7 @@ class S3ClientGUI:
         text_area.insert(tk.END, f"Successfully uploaded the following files to '{bucket_name}':\n")
         for file in successful_uploads:
             text_area.insert(tk.END, f"- {file}\n")
-        text_area.config(state=tk.DISABLED) 
+        text_area.config(state=tk.DISABLED)  # Make it read-only
         ok_button = ttk.Button(top, text="OK", command=top.destroy)
         ok_button.pack(pady=5)
 
@@ -268,7 +295,7 @@ class S3ClientGUI:
             messagebox.showerror("Error", "Not connected to S3 or bucket name is missing.")
             return
 
-        folder_name = os.path.basename(folder_path)  
+        folder_name = os.path.basename(folder_path)  # Get the name of the selected folder
         successful_uploads = []
         failed_uploads = {}
 
@@ -277,7 +304,7 @@ class S3ClientGUI:
                 local_file_path = os.path.join(root, filename)
                 relative_path = os.path.relpath(local_file_path, folder_path)
                 # Construct the S3 key with the folder name as a prefix
-                s3_key = f"{folder_name}/{relative_path.replace(os.path.sep, '/')}"
+                s3_key = f"{self.s3_root_prefix}{folder_name}/{relative_path.replace(os.path.sep, '/')}" if self.s3_root_prefix else f"{folder_name}/{relative_path.replace(os.path.sep, '/')}"
 
                 try:
                     self.s3_client.upload_file(local_file_path, bucket_name, s3_key)
@@ -286,7 +313,7 @@ class S3ClientGUI:
                     failed_uploads[local_file_path] = str(e)
 
         if successful_uploads:
-            self._show_long_message("Upload Success", f"Successfully uploaded '{folder_name}' and its contents with folder structure:\n" + "\n".join(successful_uploads))
+            self._show_long_message("Upload Success", f"Successfully uploaded '{folder_name}' and its contents under '{self.s3_root_prefix}' with folder structure:\n" + "\n".join(successful_uploads))
 
         if failed_uploads:
             error_message = "The following files failed to upload:\n"
@@ -303,14 +330,15 @@ class S3ClientGUI:
             failed_uploads = {}
             for file_path in file_paths:
                 file_name = os.path.basename(file_path)
+                s3_key = f"{self.s3_root_prefix}{file_name}" if self.s3_root_prefix else file_name
                 try:
-                    self.s3_client.upload_file(file_path, self.bucket_name.get(), file_name)
-                    successful_uploads.append(f"{file_path} -> s3://{self.bucket_name.get()}/{file_name}")
+                    self.s3_client.upload_file(file_path, self.bucket_name.get(), s3_key)
+                    successful_uploads.append(f"{file_path} -> s3://{self.bucket_name.get()}/{s3_key}")
                 except Exception as e:
                     failed_uploads[file_path] = str(e)
 
             if successful_uploads:
-                self._show_long_message("Upload Success", "Successfully uploaded the following files:\n" + "\n".join(successful_uploads))
+                self._show_long_message("Upload Success", "Successfully uploaded the following files under '{self.s3_root_prefix}':\n" + "\n".join(successful_uploads))
 
             if failed_uploads:
                 error_message = "The following files failed to upload:\n"
@@ -326,12 +354,13 @@ class S3ClientGUI:
             messagebox.showinfo("Info", "Please select one or more files to delete.")
             return
 
-        files_to_delete = [self.tree.item(item)['values'][0] for item in selected_items]
+        files_to_delete_display = [self.tree.item(item)['values'][0] for item in selected_items]
+        files_to_delete = [f"{self.s3_root_prefix}{key}" for key in files_to_delete_display] if self.s3_root_prefix else files_to_delete_display
 
         if not files_to_delete:
             return
 
-        confirmation_message = f"Are you sure you want to delete the following files from '{self.bucket_name.get()}'?\n\n" + "\n".join(files_to_delete)
+        confirmation_message = f"Are you sure you want to delete the following files from '{self.bucket_name.get()}' under '{self.s3_root_prefix}'?\n\n" + "\n".join(files_to_delete_display)
 
         confirm_top = tk.Toplevel(self.master)
         confirm_top.title("Confirm Delete")
@@ -357,27 +386,29 @@ class S3ClientGUI:
 
         yes_button = ttk.Button(confirm_top, text="Yes", command=on_yes)
         no_button = ttk.Button(confirm_top, text="No", command=on_no)
-        yes_button.pack(side="left", padx=10, pady=10)
-        no_button.pack(side="right", padx=10, pady=10)
+        yes_button.pack(side="right", padx=10, pady=10)
+        no_button.pack(side="left", padx=10, pady=10)
 
-        confirm_top.wait_window()  
+        confirm_top.wait_window()  # Wait for the confirmation window to close
 
         if confirmed.get():
             deleted_count = 0
             failed_deletes = {}
             deleted_files_list = []
-            for file_key in files_to_delete:
+            for i, file_key in enumerate(files_to_delete):
+                display_key = files_to_delete_display[i]
                 try:
                     self.s3_client.delete_object(Bucket=self.bucket_name.get(), Key=file_key)
                     deleted_count += 1
-                    deleted_files_list.append(file_key)
+                    deleted_files_list.append(display_key)
                 except Exception as e:
-                    failed_deletes[file_key] = str(e)
+                    failed_deletes[display_key] = str(e)
+
 
             if deleted_count > 0 or failed_deletes:
                 status_message = ""
                 if deleted_count > 0:
-                    status_message += f"Successfully deleted the following {deleted_count} file(s):\n" + "\n".join(deleted_files_list) + "\n\n"
+                    status_message += f"Successfully deleted the following {deleted_count} file(s) under '{self.s3_root_prefix}':\n" + "\n".join(deleted_files_list) + "\n\n"
                 if failed_deletes:
                     status_message += "The following files failed to delete:\n"
                     for file, error in failed_deletes.items():
@@ -391,5 +422,5 @@ class S3ClientGUI:
 if __name__ == "__main__":
     root = tk.Tk()
     app = S3ClientGUI(root)
-    root.geometry("1280x600") 
+    root.geometry("1280x600")  # Set initial window size
     root.mainloop()
