@@ -56,6 +56,14 @@ class S3ClientGUI:
         self.tree.heading("Name", text="Name", command=lambda: self._sort_column(self.tree, "Name", False))
         self.tree.heading("Size (Bytes)", text="Size (Bytes)", command=lambda: self._sort_column(self.tree, "Size (Bytes)", False))
         self.tree.heading("Last Modified", text="Last Modified", command=lambda: self._sort_column(self.tree, "Last Modified", False))
+        self.tree.column("Name", minwidth=350, stretch=True)  # Set a minimum width and allow stretching
+        self.tree.column("Size (Bytes)", width=50, anchor="e")  # Set a fixed width and right-align
+        self.tree.column("Last Modified", width=150)      # Set a fixed width
+
+        print(f"Name column width: {self.tree.column('Name', 'width')}, minwidth: {self.tree.column('Name', 'minwidth')}, stretch: {self.tree.column('Name', 'stretch')}")
+        print(f"Size column width: {self.tree.column('Size (Bytes)', 'width')}, anchor: {self.tree.column('Size (Bytes)', 'anchor')}")
+        print(f"Last Modified column width: {self.tree.column('Last Modified', 'width')}")
+
         self.tree.grid(row=2, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
         self.tree.bind("<Double-1>", self._download_selected_file)
 
@@ -146,6 +154,21 @@ class S3ClientGUI:
             self._clear_file_list()
             self._disable_buttons()
 
+    def _show_long_message(self, title, message):
+        top = tk.Toplevel(self.master)
+        top.title(title)
+        text_area = tk.Text(top, width=80, height=10, wrap="none")  # Adjust width/height as needed
+        scrollbar_y = ttk.Scrollbar(top, orient="vertical", command=text_area.yview)
+        scrollbar_x = ttk.Scrollbar(top, orient="horizontal", command=text_area.xview)
+        text_area.config(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        scrollbar_y.pack(fill="y", side="right")
+        scrollbar_x.pack(fill="x", side="bottom")
+        text_area.pack(expand=True, fill="both", padx=10, pady=10)
+        text_area.insert(tk.END, message)
+        text_area.config(state=tk.DISABLED)
+        ok_button = ttk.Button(top, text="OK", command=top.destroy)
+        ok_button.pack(pady=5)
+
     def _disable_buttons(self):
         self.download_button.config(state=tk.DISABLED)
         self.upload_button.config(state=tk.DISABLED)
@@ -191,24 +214,56 @@ class S3ClientGUI:
                 self.tree.insert("", tk.END, values=item)
 
     def _download_selected_file(self, event=None):
-        selected_item = self.tree.selection()
-        if not selected_item:
+        selected_items = self.tree.selection()
+        if not selected_items:
             return
 
-        file_key = self.tree.item(selected_item[0])['values'][0]
-        save_path = filedialog.asksaveasfilename(
-            defaultextension=os.path.splitext(file_key)[1],
-            initialfile=os.path.basename(file_key)
-        )
+        files_to_download = [self.tree.item(item)['values'][0] for item in selected_items]
+        if not files_to_download:
+            return
 
-        if save_path:
+        destination_folder = filedialog.askdirectory()
+        if not destination_folder:
+            return  # User cancelled directory selection
+
+        successful_downloads = []
+        failed_downloads = {}
+
+        for file_key in files_to_download:
+            save_path = os.path.join(destination_folder, os.path.basename(file_key))
             try:
                 self.s3_client.download_file(self.bucket_name.get(), file_key, save_path)
-                messagebox.showinfo("Success", f"Downloaded '{file_key}' to '{save_path}'.")
+                successful_downloads.append(f"{file_key} -> {save_path}")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to download '{file_key}': {e}")
+                failed_downloads[file_key] = str(e)
 
-    def _upload_file(self): 
+        if successful_downloads:
+            self._show_long_message("Download Success", "Successfully downloaded the following files:\n" + "\n".join(successful_downloads))
+
+        if failed_downloads:
+            error_message = "The following files failed to download:\n"
+            for file, error in failed_downloads.items():
+                error_message += f"- {file}: {error}\n"
+            messagebox.showerror("Download Error", error_message)
+
+    def _show_upload_success(self, successful_uploads, bucket_name):
+        top = tk.Toplevel(self.master)
+        top.title("Upload Success")
+        text_area = tk.Text(top, width=80, height=15, wrap="none")  # Increased width, disabled wrapping
+        scrollbar_y = ttk.Scrollbar(top, orient="vertical", command=text_area.yview)
+        scrollbar_x = ttk.Scrollbar(top, orient="horizontal", command=text_area.xview)
+        text_area.config(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        scrollbar_y.pack(fill="y", side="right")
+        scrollbar_x.pack(fill="x", side="bottom")
+        text_area.pack(expand=True, fill="both", padx=10, pady=10)
+        text_area.insert(tk.END, f"Successfully uploaded the following files to '{bucket_name}':\n")
+        for file in successful_uploads:
+            text_area.insert(tk.END, f"- {file}\n")
+        text_area.config(state=tk.DISABLED)  # Make it read-only
+        ok_button = ttk.Button(top, text="OK", command=top.destroy)
+        ok_button.pack(pady=5)
+
+    def _upload_file(self):
         file_paths = filedialog.askopenfilenames()
         if file_paths:
             successful_uploads = []
@@ -222,16 +277,15 @@ class S3ClientGUI:
                     failed_uploads[file_name] = str(e)
 
             if successful_uploads:
-                success_message = f"Successfully uploaded the following files to '{self.bucket_name.get()}':\n" + "\n".join(successful_uploads)
-                messagebox.showinfo("Upload Success", success_message)
+                self._show_upload_success(successful_uploads, self.bucket_name.get())
 
             if failed_uploads:
-                error_message = "The following files failed to upload:\n"
+                error_message_text = "The following files failed to upload:\n"
                 for file, error in failed_uploads.items():
-                    error_message += f"- {file}: {error}\n"
-                messagebox.showerror("Upload Error", error_message)
+                    error_message_text += f"- {file}: {error}\n"
+                messagebox.showerror("Upload Error", error_message_text) # Keeping this as a standard messagebox for errors for now
 
-            self._list_objects()  # Refresh the file list after all uploads
+            self._list_objects()
 
     def _delete_selected_files(self):
         selected_items = self.tree.selection()
@@ -244,38 +298,65 @@ class S3ClientGUI:
         if not files_to_delete:
             return
 
-        confirmation = messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete the following files from '{self.bucket_name.get()}'?\n\n" + "\n".join(files_to_delete))
+        confirmation_message = f"Are you sure you want to delete the following files from '{self.bucket_name.get()}'?\n\n" + "\n".join(files_to_delete)
 
-        if confirmation:
+        confirm_top = tk.Toplevel(self.master)
+        confirm_top.title("Confirm Delete")
+        text_area = tk.Text(confirm_top, width=80, height=10, wrap="none")
+        scrollbar_y = ttk.Scrollbar(confirm_top, orient="vertical", command=text_area.yview)
+        scrollbar_x = ttk.Scrollbar(confirm_top, orient="horizontal", command=text_area.xview)
+        text_area.config(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        scrollbar_y.pack(fill="y", side="right")
+        scrollbar_x.pack(fill="x", side="bottom")
+        text_area.pack(expand=True, fill="both", padx=10, pady=10)
+        text_area.insert(tk.END, confirmation_message)
+        text_area.config(state=tk.DISABLED)
+
+        confirmed = tk.BooleanVar()
+
+        def on_yes():
+            confirmed.set(True)
+            confirm_top.destroy()
+
+        def on_no():
+            confirmed.set(False)
+            confirm_top.destroy()
+
+        yes_button = ttk.Button(confirm_top, text="Yes", command=on_yes)
+        no_button = ttk.Button(confirm_top, text="No", command=on_no)
+        yes_button.pack(side="left", padx=10, pady=10)
+        no_button.pack(side="right", padx=10, pady=10)
+
+        confirm_top.wait_window()  # Wait for the confirmation window to close
+
+        if confirmed.get():
             deleted_count = 0
             failed_deletes = {}
+            deleted_files_list = []
             for file_key in files_to_delete:
                 try:
                     self.s3_client.delete_object(Bucket=self.bucket_name.get(), Key=file_key)
                     deleted_count += 1
+                    deleted_files_list.append(file_key)
                 except Exception as e:
                     failed_deletes[file_key] = str(e)
 
-            if deleted_count > 0:
-                message = f"Successfully deleted {deleted_count} file(s) from '{self.bucket_name.get()}'."
+            if deleted_count > 0 or failed_deletes:
+                status_message = ""
+                if deleted_count > 0:
+                    status_message += f"Successfully deleted the following {deleted_count} file(s):\n" + "\n".join(deleted_files_list) + "\n\n"
                 if failed_deletes:
-                    message += "\nThe following files failed to delete:"
+                    status_message += "The following files failed to delete:\n"
                     for file, error in failed_deletes.items():
-                        message += f"\n- {file}: {error}"
-                    messagebox.showinfo("Delete Status", message)
-                else:
-                    messagebox.showinfo("Delete Success", message)
-            elif failed_deletes:
-                error_message = "Failed to delete the following files:\n"
-                for file, error in failed_deletes.items():
-                    error_message += f"- {file}: {error}\n"
-                messagebox.showerror("Delete Error", error_message)
+                        status_message += f"- {file}: {error}\n"
+                self._show_long_message("Delete Status", status_message)
             else:
                 messagebox.showinfo("Info", "No files were deleted.")
 
-            self._list_objects()  # Refresh the file list after deletion attempts
+            self._list_objects()
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = S3ClientGUI(root)
+    root.geometry("1280x600")  # Set initial window size
     root.mainloop()
