@@ -66,8 +66,11 @@ class S3ClientGUI:
         self.upload_button = ttk.Button(master, text="Upload", command=self._upload_file, state=tk.DISABLED)
         self.upload_button.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
+        self.delete_button = ttk.Button(master, text="Delete", command=self._delete_selected_files, state=tk.DISABLED)
+        self.delete_button.grid(row=3, column=2, padx=5, pady=5, sticky="ew")
+
         self.refresh_button = ttk.Button(master, text="Refresh", command=self._list_objects, state=tk.DISABLED)
-        self.refresh_button.grid(row=3, column=2, padx=5, pady=5, sticky="ew")
+        self.refresh_button.grid(row=3, column=3, padx=5, pady=5, sticky="ew")
 
         # Configure grid weights for resizing
         master.grid_columnconfigure(1, weight=1)
@@ -124,6 +127,7 @@ class S3ClientGUI:
             self._list_objects()
             self.download_button.config(state=tk.NORMAL)
             self.upload_button.config(state=tk.NORMAL)
+            self.delete_button.config(state=tk.NORMAL)
             self.refresh_button.config(state=tk.NORMAL)
             messagebox.showinfo("Success", f"Connected to bucket '{bucket}' using profile '{profile_name}'.")
         except ProfileNotFound:
@@ -145,6 +149,7 @@ class S3ClientGUI:
     def _disable_buttons(self):
         self.download_button.config(state=tk.DISABLED)
         self.upload_button.config(state=tk.DISABLED)
+        self.delete_button.config(state=tk.DISABLED)
         self.refresh_button.config(state=tk.DISABLED)
 
     def _clear_file_list(self):
@@ -203,16 +208,72 @@ class S3ClientGUI:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to download '{file_key}': {e}")
 
-    def _upload_file(self):
-        file_path = filedialog.askopenfilename()
-        if file_path:
-            file_name = os.path.basename(file_path)
-            try:
-                self.s3_client.upload_file(file_path, self.bucket_name.get(), file_name)
-                messagebox.showinfo("Success", f"Uploaded '{file_name}' to '{self.bucket_name.get()}'.")
-                self._list_objects()  # Refresh the file list after upload
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to upload '{file_name}': {e}")
+    def _upload_file(self): 
+        file_paths = filedialog.askopenfilenames()
+        if file_paths:
+            successful_uploads = []
+            failed_uploads = {}
+            for file_path in file_paths:
+                file_name = os.path.basename(file_path)
+                try:
+                    self.s3_client.upload_file(file_path, self.bucket_name.get(), file_name)
+                    successful_uploads.append(file_name)
+                except Exception as e:
+                    failed_uploads[file_name] = str(e)
+
+            if successful_uploads:
+                success_message = f"Successfully uploaded the following files to '{self.bucket_name.get()}':\n" + "\n".join(successful_uploads)
+                messagebox.showinfo("Upload Success", success_message)
+
+            if failed_uploads:
+                error_message = "The following files failed to upload:\n"
+                for file, error in failed_uploads.items():
+                    error_message += f"- {file}: {error}\n"
+                messagebox.showerror("Upload Error", error_message)
+
+            self._list_objects()  # Refresh the file list after all uploads
+
+    def _delete_selected_files(self):
+        selected_items = self.tree.selection()
+        if not selected_items:
+            messagebox.showinfo("Info", "Please select one or more files to delete.")
+            return
+
+        files_to_delete = [self.tree.item(item)['values'][0] for item in selected_items]
+
+        if not files_to_delete:
+            return
+
+        confirmation = messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete the following files from '{self.bucket_name.get()}'?\n\n" + "\n".join(files_to_delete))
+
+        if confirmation:
+            deleted_count = 0
+            failed_deletes = {}
+            for file_key in files_to_delete:
+                try:
+                    self.s3_client.delete_object(Bucket=self.bucket_name.get(), Key=file_key)
+                    deleted_count += 1
+                except Exception as e:
+                    failed_deletes[file_key] = str(e)
+
+            if deleted_count > 0:
+                message = f"Successfully deleted {deleted_count} file(s) from '{self.bucket_name.get()}'."
+                if failed_deletes:
+                    message += "\nThe following files failed to delete:"
+                    for file, error in failed_deletes.items():
+                        message += f"\n- {file}: {error}"
+                    messagebox.showinfo("Delete Status", message)
+                else:
+                    messagebox.showinfo("Delete Success", message)
+            elif failed_deletes:
+                error_message = "Failed to delete the following files:\n"
+                for file, error in failed_deletes.items():
+                    error_message += f"- {file}: {error}\n"
+                messagebox.showerror("Delete Error", error_message)
+            else:
+                messagebox.showinfo("Info", "No files were deleted.")
+
+            self._list_objects()  # Refresh the file list after deletion attempts
 
 if __name__ == "__main__":
     root = tk.Tk()
