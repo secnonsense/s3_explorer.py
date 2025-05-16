@@ -1,7 +1,7 @@
 import boto3
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 from botocore.exceptions import NoCredentialsError, ProfileNotFound
 
 class S3ClientGUI:
@@ -12,7 +12,8 @@ class S3ClientGUI:
         # --- Color Customization ---
         bg_color = "#e5eb34"  # yellow
         button_color = "#343aeb" # blue
-        text_color = "#f2f2f5"  # white
+        text_color = "white"  
+        background = "black"
 
         master.config(bg=bg_color)
 
@@ -23,9 +24,9 @@ class S3ClientGUI:
         style.map("TButton",
                   background=[("active", button_color),  # Color when the mouse is over the button
                               ("pressed", button_color)]) # Color when the button is pressed
-        style.configure("TEntry", background="black", foreground=text_color)
-        style.configure("TCombobox", background="black", foreground=text_color)
-        style.configure("Treeview", background="black", foreground=text_color)
+        style.configure("TEntry", background=background, foreground=text_color)
+        style.configure("TCombobox", background=background, foreground=text_color)
+        style.configure("Treeview", background=background, foreground=text_color)
         style.configure("Treeview.Heading", background=button_color, foreground=text_color)
 
         self.default_profile = 'default'
@@ -304,7 +305,7 @@ class S3ClientGUI:
 
         destination_folder = filedialog.askdirectory()
         if not destination_folder:
-            return  
+            return  # User cancelled directory selection
 
         successful_downloads = []
         failed_downloads = {}
@@ -330,7 +331,7 @@ class S3ClientGUI:
     def _show_upload_success(self, successful_uploads, bucket_name):
         top = tk.Toplevel(self.master)
         top.title("Upload Success")
-        text_area = tk.Text(top, width=80, height=15, wrap="none")  
+        text_area = tk.Text(top, width=80, height=15, wrap="none")  # Increased width, disabled wrapping
         scrollbar_y = ttk.Scrollbar(top, orient="vertical", command=text_area.yview)
         scrollbar_x = ttk.Scrollbar(top, orient="horizontal", command=text_area.xview)
         text_area.config(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
@@ -448,7 +449,7 @@ class S3ClientGUI:
         yes_button.pack(side="right", padx=10, pady=10)
         no_button.pack(side="left", padx=10, pady=10)
 
-        confirm_top.wait_window()  
+        confirm_top.wait_window()  # Wait for the confirmation window to close
 
         if confirmed.get():
             deleted_count = 0
