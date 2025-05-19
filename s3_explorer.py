@@ -159,8 +159,6 @@ class S3ClientGUI:
         text_color = self.text_color
         background = self.background
 
-        #master.config()
-
         style = ttk.Style(master)
         style.configure("TLabel", background=background, foreground=text_color)
         style.configure("TButton", foreground=text_color) # Keep button background
