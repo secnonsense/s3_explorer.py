@@ -97,13 +97,19 @@ class S3ClientGUI:
         self.refresh_button.grid(row=5, column=5, padx=5, pady=5, sticky="ew")
 
     def _create_theme_toggle_button(self, master):
+        style = ttk.Style()
+        font_size = 12
+        font_family = "Segoe UI Symbol"
+        symbol_font = tkFont.Font(family=font_family, size=font_size)
+        style.configure("UnicodeToggle.TButton", font=symbol_font, padding=0)
+        
         self.theme_toggle_button = ttk.Button(
             master,
             text="☀️",  # Initial text (dark mode symbol)
             width=3,      # Make it very small for an icon
             command=self._toggle_theme,
             style="Toggle.TButton" # Optional: Use a specific style
-        )
+            )
         # Place it in the top right with some padding
         self.theme_toggle_button.place(relx=1.0, rely=0.0, anchor=tk.NE, x=-10, y=10)
 
