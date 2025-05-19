@@ -2,6 +2,7 @@ import boto3
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import tkinter.font as tkFont
 from botocore.exceptions import NoCredentialsError, ProfileNotFound
 
 class S3ClientGUI:
@@ -28,6 +29,12 @@ class S3ClientGUI:
         style.configure("TCombobox", background=background, foreground=text_color)
         style.configure("Treeview", background=background, foreground=text_color)
         style.configure("Treeview.Heading", background=button_color, foreground=text_color)
+
+        self.text_color = text_color  # Initialize with the default text color
+        self.background = background  # Initialize with the default background
+        self.dark_mode_on = True
+
+        self._create_theme_toggle_button(master)
 
         self.default_profile = 'default'
         self.available_profiles = self._get_available_profiles()
@@ -89,6 +96,21 @@ class S3ClientGUI:
         self.refresh_button = ttk.Button(master, text="Refresh", command=self._list_objects, state=tk.DISABLED)
         self.refresh_button.grid(row=5, column=5, padx=5, pady=5, sticky="ew")
 
+    def _create_theme_toggle_button(self, master):
+        self.theme_toggle_button = ttk.Button(
+            master,
+            text="☀️",  # Initial text (dark mode symbol)
+            width=3,      # Make it very small for an icon
+            command=self._toggle_theme,
+            style="Toggle.TButton" # Optional: Use a specific style
+        )
+        # Place it in the top right with some padding
+        self.theme_toggle_button.place(relx=1.0, rely=0.0, anchor=tk.NE, x=-10, y=10)
+
+        # Optional: Define a minimal style for the button
+        style = ttk.Style()
+        style.configure("Toggle.TButton", padding=0)
+
         # Configure grid weights for resizing
         master.grid_columnconfigure(0, weight=1)
         master.grid_columnconfigure(1, weight=1)
@@ -120,6 +142,51 @@ class S3ClientGUI:
         except Exception as e:
             messagebox.showerror("Sorting Error", f"Error during sorting: {e}")
 
+    def _toggle_theme(self):
+        self.dark_mode_on = not self.dark_mode_on
+        if self.dark_mode_on:
+            self.text_color = "white"
+            self.background = "black"
+            self.theme_toggle_button.config(text="☀️") # Switch to light mode symbol
+        else:
+            self.text_color = "black"
+            self.background = "white"
+            self.theme_toggle_button.config(text="🌙") # Switch to dark mode symbol
+        self._apply_text_background()
+
+    def _apply_text_background(self):
+        master = self.master
+        text_color = self.text_color
+        background = self.background
+
+        #master.config()
+
+        style = ttk.Style(master)
+        style.configure("TLabel", background=background, foreground=text_color)
+        style.configure("TButton", foreground=text_color) # Keep button background
+        style.configure("TEntry", background=background, foreground=text_color)
+        style.configure("TCombobox", background=background, foreground=text_color)
+        style.configure("Treeview", background=background, foreground=text_color)
+        style.configure("Treeview.Heading", foreground=text_color) # Keep heading background
+
+        for widget in master.winfo_children():
+            self._apply_text_bg_to_widget(widget, text_color, background)
+
+    def _apply_text_bg_to_widget(self, widget, text_color, background):
+        try:
+            widget_class = str(widget.winfo_class())
+            if widget_class in ("Label",):
+                widget.config(foreground=text_color, background=background)
+            elif isinstance(widget, (tk.Toplevel,)):
+                widget.config(bg=background)
+                for child in widget.winfo_children():
+                    self._apply_text_bg_to_widget(child, text_color, background)
+            elif isinstance(widget, (ttk.Frame, tk.LabelFrame)):
+                widget.config(bg=background)
+                for child in widget.winfo_children():
+                    self._apply_text_bg_to_widget(child, text_color, background)
+        except tk.TclError:
+            pass
 
     def _get_available_profiles(self):
         config_path = os.path.join(os.path.expanduser('~'), '.aws', 'credentials')
