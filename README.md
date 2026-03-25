@@ -8,4 +8,5 @@ arguments:
 "bucket", "Name of the S3 bucket"  
 "-p", "--profile", "AWS profile name - Default profile is [default]"  
 "-d", "--download", "File key to download from S3"  
-"-u", "--upload", "Local file path to upload to S3"
+"-u", "--upload", "Local file path to upload to S3"  
+"--prefix", "S3 folder/prefix for all operations", default=""
